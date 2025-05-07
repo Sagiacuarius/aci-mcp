@@ -1,34 +1,20 @@
-# Etapa de build usando uv (astral‑sh)
+# Build stage con uv
 FROM ghcr.io/astral-sh/uv:python3.10-bookworm-slim AS uv
-
 WORKDIR /app
-
-# Habilitamos compilación de bytecode y modo de link
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_LINK_MODE=copy
-
-# Instalamos las dependencias según uv.lock + pyproject.toml
+ARG RAILWAY_SERVICE_ID
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY uv.lock pyproject.toml /app/
-RUN uv sync --frozen --no-install-project --no-dev --no-editable
-
-# Añadimos el código fuente y volvemos a sync para incluir el proyecto
+RUN --mount=type=cache,id=s/${RAILWAY_SERVICE_ID}-uv-cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev --no-editable
 ADD . /app
-RUN uv sync --frozen --no-dev --no-editable
+RUN --mount=type=cache,id=s/${RAILWAY_SERVICE_ID}-uv-cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
 
-# Etapa final: pequeña imagen de Python
-FROM python:3.10-slim-bookworm
-
-# Instalamos git
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-
+# Runtime ligero en Alpine
+FROM python:3.10-alpine
+RUN apk update && apk add --no-cache git
 WORKDIR /app
-
-# Copiamos entorno virtual y binarios de uv
-COPY --from=uv /root/.local /root/.local
-COPY --from=uv --chown=app:app /app/.venv /app/.venv
-
-# Colocamos los ejecutables al frente del PATH
+COPY --from=uv /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
-
-# Comando por defecto
 ENTRYPOINT ["aci-mcp"]
+
